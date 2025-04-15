@@ -29,3 +29,5 @@ If you find our work insightful, please consider citing it:
   journal={arXiv preprint arXiv:2502.03755},
   year={2025}
 }
+
+#### Open-source Assertion O4866
