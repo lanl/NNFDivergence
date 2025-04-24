@@ -55,7 +55,7 @@ def ExtractOneHoldStandardSplit(args, TrSampleName, TeSampleName,ValSampleName )
         # Construct training data for ML training
         for sn in TrSampleName:
             # check if there is missing data
-            if -1 in ChemCam_Mars_labels[sn]:
+            if np.sum(np.isnan(ChemCam_Mars_labels[sn])):
                 continue
             TrFeat = np.vstack((TrFeat, ChemCam_Mars_predictors[sn].reshape((1, -1))[:, 50:]))
             TrLabel = np.vstack((TrLabel, ChemCam_Mars_labels[sn]))
@@ -64,7 +64,7 @@ def ExtractOneHoldStandardSplit(args, TrSampleName, TeSampleName,ValSampleName )
         ValSampleName2 = []
         for sn in ValSampleName:
             # check if there is missing data
-            if -1 in ChemCam_Mars_labels[sn]:
+            if np.sum(np.isnan(ChemCam_Mars_labels[sn])):
                 continue
             ValSampleName2.append(sn)
             ValFeat = np.vstack((ValFeat, ChemCam_Mars_predictors[sn].reshape((1, -1))[:, 50:]))
@@ -75,7 +75,7 @@ def ExtractOneHoldStandardSplit(args, TrSampleName, TeSampleName,ValSampleName )
         # Construct test data for ML training 
         TeSampleName2 = []
         for sn in TeSampleName:
-            if -1 in ChemCam_Mars_labels[sn]:
+            if np.sum(np.isnan(ChemCam_Mars_labels[sn])):
                 continue
             TeSampleName2.append(sn)
 
