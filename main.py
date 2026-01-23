@@ -48,7 +48,7 @@ def main() -> None:
         args,
         DataType="PDS_ChemCam",  # switch to "PDS_SuperCam" if needed
         seed=1,
-        epochs=1,
+        epochs=500,
         batch_size=16,
         lr=1.0,
     )

@@ -8,8 +8,6 @@ from Models import CNN, MyAIDataset, test, train, TwoSampletrain
 import os
 import pickle 
 import random
-from zipfile import Path 
-from git import Union
 import numpy as np 
 import torch
 import torch.optim as optim

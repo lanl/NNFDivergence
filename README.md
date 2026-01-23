@@ -130,10 +130,9 @@ experiments reported in the paper.
   - Publicly available via the Planetary Data System (PDS)
 
 - **SuperCam LIBS data**
-  - Fully supported in code
+  - Fully supported
   - Automatically downloaded and preprocessed
   - Publicly available via the Planetary Data System (PDS)
-  - Included to support the experimental settings described in the paper
 
 Note: Although both ChemCam and SuperCam datasets are automatically downloaded by the
 code, the numerical results reported in the paper additionally rely on external
@@ -147,10 +146,10 @@ in this repository.
 - `main.py` – main entry point implementing all methods with fixed parameters
 - `methods.py` – training logic and f-divergence regularization
 - `Models.py` – CNN architectures
-- `BaselineModels.py` – PLS and baseline regressors
+- `BaselineModels.py` – PLS regressors
 - `DataUtils.py` – data loading and train/validation/test splitting
 - `Options.py` – command-line configuration
-- `Utils.py` – utilities (logging, metrics helpers, random seeds)
+
 
 ---
 
