@@ -57,7 +57,7 @@ divergence between predicted and target distributions.
   <img src="figs/fig1_divergence.png" width="95%">
 </p>
 
-**Figure 1. Motivation for f-divergence regularization (reproduced from the manuscript).**  
+**Figure 1. Motivation for f-divergence regularization.**  
 A function approximation with an appropriate divergence between predictions and noisy
 targets generalizes better than approximations with either too small or too large
 divergence. This observation motivates explicitly controlling distributional discrepancy
@@ -67,7 +67,7 @@ during neural network training.
   <img src="figs/fig2_training_pipeline.png" width="95%">
 </p>
 
-**Figure 2. Training objective with f-divergence regularization (reproduced from the manuscript).**  
+**Figure 2. Training objective with f-divergence regularization.**  
 The neural network is trained using a standard mean squared error (MSE) loss together
 with an auxiliary f-divergence regularization term that constrains the distributional
 discrepancy between predictions and targets.
