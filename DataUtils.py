@@ -1,30 +1,28 @@
+import argparse
 import os
+import random
 import numpy as np 
 import pandas as pd
 import pickle 
 import requests
+
+from pathlib import Path
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
   
 # Read ChemCam or SuperCam LIBS data for stanard split
-def LoadLIBSDataforNetworkTraining_StandardSplit(args):
-    cwd = os.getcwd() 
+def LoadLIBSDataforNetworkTraining_StandardSplit(dataType, saving_path):
     # set up directory
-    if args.DataType == 'PDS_ChemCam':
-        DataDir = cwd + '/%s/Data/'%(args.DataType)
-        # Split data to training and validation
-        ChemCam_Mars_labels = pickle.load(open(DataDir + 'ChemCam_Mars_labels.pickle', "rb" ))
-        SampleName = list(ChemCam_Mars_labels.keys())
-        SampleName2 = []
-        for sn in SampleName:
-            if np.sum(np.isnan(ChemCam_Mars_labels[sn])) == 0: # remove the sample which has missing values in the label 
-                SampleName2.append(sn)
-    elif args.DataType == 'PDS_SuperCam':
-        DataDir = cwd + '/../../Data/PDS_SuperCam/'
-        with open(DataDir + 'Calibrated_LIBS_EightOxide_Labels', 'rb') as handle:
-            LIBS_Labels = pickle.load(handle)
-        SampleName2 = list(LIBS_Labels.keys())
-
+   
+    DataDir = saving_path + '/%s/Data/'%(dataType)
+    # Split data to training and validation
+    oxide_labels = pickle.load(open(DataDir + f'{dataType[4:]}_Mars_labels.pickle', "rb" ))
+    SampleName = list(oxide_labels.keys())
+    SampleName2 = []
+    for sn in SampleName:
+        if np.sum(np.isnan(oxide_labels[sn])) == 0: # remove the sample which has missing values in the label 
+            SampleName2.append(sn)
+ 
     # K-fold split 
     TrSize = int(len(SampleName2) * 0.8); ValSize = int(len(SampleName2) * 0.1); 
     TrSampleName = np.random.choice(SampleName2, size = TrSize, replace = False)
@@ -34,58 +32,66 @@ def LoadLIBSDataforNetworkTraining_StandardSplit(args):
     return TrSampleName, ValSampleName, TeSampleName
 
 
-def ExtractOneHoldStandardSplit(args, TrSampleName, TeSampleName,ValSampleName ):
-    cwd = os.getcwd() 
-    # set up directory
+def ExtractOneHoldStandardSplit(args, TrSampleName, TeSampleName,ValSampleName, saving_path):
+
+    DataDir = saving_path + '/%s/Data/'%(args.DataType)
     if args.DataType == 'PDS_ChemCam':
-        DataDir = cwd + '/%s/Data/'%(args.DataType)
         FeatLen = 6144 - 50; LabLen = 9; 
-        
-        # Split data to training and validation
-        ChemCam_Mars_predictors = pickle.load(open(DataDir + 'ChemCam_Mars_predictors.pickle', "rb" ))
-        ChemCam_Mars_labels = pickle.load(open(DataDir + 'ChemCam_Mars_labels.pickle', "rb" ))
-   
-        # Get training, validation and test sets
-        TrFeat = np.zeros((0, FeatLen)); TrLabel = np.zeros((0, LabLen))
-        ValFeat = np.zeros((0, FeatLen)); ValLabel = np.zeros((0, LabLen))
-        TeFeat = np.zeros((0, FeatLen)); TeLabel = np.zeros((0, LabLen))
-
-        TeShotCount = [];  ValShotCount = []; # number of spectra for a sample 
-
-        # Construct training data for ML training
-        for sn in TrSampleName:
-            # check if there is missing data
-            if np.sum(np.isnan(ChemCam_Mars_labels[sn])):
-                continue
-            TrFeat = np.vstack((TrFeat, ChemCam_Mars_predictors[sn].reshape((1, -1))[:, 50:]))
-            TrLabel = np.vstack((TrLabel, ChemCam_Mars_labels[sn]))
-
-        # Construct validation data for ML training
-        ValSampleName2 = []
-        for sn in ValSampleName:
-            # check if there is missing data
-            if np.sum(np.isnan(ChemCam_Mars_labels[sn])):
-                continue
-            ValSampleName2.append(sn)
-            ValFeat = np.vstack((ValFeat, ChemCam_Mars_predictors[sn].reshape((1, -1))[:, 50:]))
-            ValLabel = np.vstack((ValLabel, ChemCam_Mars_labels[sn]))
-            ValShotCount.append(len(ChemCam_Mars_predictors[sn]))
-        ValSampleName = ValSampleName2
-
-        # Construct test data for ML training 
-        TeSampleName2 = []
-        for sn in TeSampleName:
-            if np.sum(np.isnan(ChemCam_Mars_labels[sn])):
-                continue
-            TeSampleName2.append(sn)
-
-            TeFeat = np.vstack((TeFeat, ChemCam_Mars_predictors[sn].reshape((1, -1))[:, 50:]))
-            TeLabel = np.vstack((TeLabel, ChemCam_Mars_labels[sn]))                    
-            TeShotCount.append(len(ChemCam_Mars_predictors[sn]))
-        TeSampleName = TeSampleName2
-
     elif args.DataType == 'PDS_SuperCam':
-        pass
+        FeatLen = 7933; LabLen = 8; 
+    
+    # Split data to training and validation
+    predictors = pickle.load(open(DataDir + f'{args.DataType[4:]}_Mars_predictors.pickle', "rb" ))
+    labels = pickle.load(open(DataDir + f'{args.DataType[4:]}_Mars_labels.pickle', "rb" ))
+
+    # Get training, validation and test sets
+    TrFeat = np.zeros((0, FeatLen)); TrLabel = np.zeros((0, LabLen))
+    ValFeat = np.zeros((0, FeatLen)); ValLabel = np.zeros((0, LabLen))
+    TeFeat = np.zeros((0, FeatLen)); TeLabel = np.zeros((0, LabLen))
+
+    TeShotCount = [];  ValShotCount = []; # number of spectra for a sample 
+
+    # Construct training data for ML training
+    for sn in TrSampleName:
+        # check if there is missing data
+        if np.sum(np.isnan(labels[sn])):
+            continue
+        if args.DataType == 'PDS_ChemCam':
+            TrFeat = np.vstack((TrFeat, np.array(predictors[sn]).reshape((1, -1))[:, 50:])) # exclude the noisy spectroscopy at the beginning
+        else:
+            TrFeat = np.vstack((TrFeat, np.array(predictors[sn]).reshape((1, -1))))
+        TrLabel = np.vstack((TrLabel, labels[sn]))
+
+    # Construct validation data for ML training
+    ValSampleName2 = []
+    for sn in ValSampleName:
+        # check if there is missing data
+        if np.sum(np.isnan(labels[sn])):
+            continue
+        ValSampleName2.append(sn)
+        if args.DataType == 'PDS_ChemCam':
+            ValFeat = np.vstack((ValFeat, np.array(predictors[sn]).reshape((1, -1))[:, 50:]))
+        else:
+            ValFeat = np.vstack((ValFeat, np.array(predictors[sn]).reshape((1, -1))))
+        ValLabel = np.vstack((ValLabel, labels[sn]))
+        ValShotCount.append(len(predictors[sn]))
+    ValSampleName = ValSampleName2
+
+    # Construct test data for ML training 
+    TeSampleName2 = []
+    for sn in TeSampleName:
+        if np.sum(np.isnan(labels[sn])):
+            continue
+        TeSampleName2.append(sn)
+        if args.DataType == 'PDS_ChemCam':
+            TeFeat = np.vstack((TeFeat, np.array(predictors[sn]).reshape((1, -1))[:, 50:]))
+        else:
+            TeFeat = np.vstack((TeFeat, np.array(predictors[sn]).reshape((1, -1))))
+        TeLabel = np.vstack((TeLabel, labels[sn]))                    
+        TeShotCount.append(len(np.array(predictors[sn])))
+    TeSampleName = TeSampleName2
+
+
     return TrFeat, ValFeat, TeFeat, TrLabel, ValLabel, TeLabel, ValSampleName, TeSampleName, ValShotCount, TeShotCount
 
 def Clean_Name(name):
@@ -108,16 +114,20 @@ def read_csv_files(urls):
     SpectralMean = Spectrum / Count 
     return SpectralMean
 
-class DownLoadDatasets:
-    def __init__(self, args):
-        cwd = os.getcwd() 
-        self.DataDir = cwd + '/%s/Data/'%(args.DataType)
+class DownLoadChemCam:
+    def __init__(self, args, saving_path= None):
+        if saving_path == None:
+            cwd = os.getcwd() 
+            self.DataDir = cwd + '/PDS_ChemCam/Data/'
+        else:
+            self.DataDir = saving_path + '/PDS_ChemCam/Data/'
+    
         if not os.path.exists(self.DataDir + 'ChemCam_Mars_labels.pickle'):
             # os.makedirs(DataDir)
-            if args.DataType == 'PDS_ChemCam':
-                label_url = "https://pds-geosciences.wustl.edu/msl/msl-m-chemcam-libs-4_5-rdr-v1/mslccm_1xxx/calib/ccam_calibration_compositions.csv"
-                Feat_url1 = 'https://pds-geosciences.wustl.edu/msl/msl-m-chemcam-libs-4_5-rdr-v1/mslccm_1xxx/calib/calib_2021/1600mm/'
-                Feat_url2 = 'https://pds-geosciences.wustl.edu/msl/msl-m-chemcam-libs-4_5-rdr-v1/mslccm_1xxx/calib/calib_2015/1600mm/'
+           
+            label_url = "https://pds-geosciences.wustl.edu/msl/msl-m-chemcam-libs-4_5-rdr-v1/mslccm_1xxx/calib/ccam_calibration_compositions.csv"
+            Feat_url1 = 'https://pds-geosciences.wustl.edu/msl/msl-m-chemcam-libs-4_5-rdr-v1/mslccm_1xxx/calib/calib_2021/1600mm/'
+            Feat_url2 = 'https://pds-geosciences.wustl.edu/msl/msl-m-chemcam-libs-4_5-rdr-v1/mslccm_1xxx/calib/calib_2015/1600mm/'
             # Load the label CSV file directly into a pandas DataFrame
             self.df_Labels = pd.read_csv(label_url)
             
@@ -202,3 +212,212 @@ class DownLoadDatasets:
 
     
 
+def download_file(url: str, out_path: Path, chunk_size: int = 1 << 20) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with requests.get(url, stream=True, timeout=120) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("Content-Length", 0))
+        n = 0
+        with open(out_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=chunk_size):
+                if chunk:
+                    f.write(chunk)
+                    n += len(chunk)
+                    if total:
+                        pct = 100.0 * n / total
+                        print(f"\rDownloading: {pct:6.2f}% ({n}/{total} bytes)", end="")
+        print("\nDone:", out_path)
+
+
+def load_twoheader_csv(path: Path) -> pd.DataFrame:
+    """
+    Read CSV with 2 header rows into MultiIndex columns.
+    Handles non-utf8 gracefully by trying common encodings.
+    """
+    encodings_to_try = ["utf-8", "cp1252", "latin-1"]
+    last_err = None
+    for enc in encodings_to_try:
+        try:
+            df = pd.read_csv(path, header=[0, 1], encoding=enc, low_memory=False)
+            # Normalize header strings
+            df.columns = pd.MultiIndex.from_tuples(
+                [(str(a).strip(), str(b).strip()) for a, b in df.columns.to_list()]
+            )
+            return df
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"Failed to read CSV with tried encodings: {encodings_to_try}. Last error: {last_err}")
+
+
+def infer_target_key(cols: pd.MultiIndex) -> tuple[str, str]:
+    """
+    Try to find the target/sample name column under level-0 'meta'.
+    Prefers (meta, Target_Name), but falls back to best match.
+    """
+    # Exact common key first
+    if ("meta", "Target_Name") in cols:
+        return ("meta", "Target_Name")
+
+    meta_cols = [c for c in cols if c[0].lower() == "meta"]
+    if not meta_cols:
+        raise ValueError("No 'meta' columns found; cannot locate target/sample name column.")
+
+    # Heuristic: choose a meta column containing "target" and/or "name"
+    def score(c):
+        s = c[1].lower()
+        sc = 0
+        if "target" in s: sc += 10
+        if "name" in s: sc += 5
+        if "sample" in s: sc += 4
+        if "rock" in s: sc += 2
+        return sc
+
+    meta_cols_sorted = sorted(meta_cols, key=score, reverse=True)
+    best = meta_cols_sorted[0]
+    if score(best) == 0:
+        raise ValueError(
+            "Could not infer target column from meta fields. "
+            f"Meta columns (sample): {meta_cols[:20]}"
+        )
+    return best
+
+
+def build_arrays_from_twoheader(
+    df: pd.DataFrame,
+    oxides=("SiO2","TiO2","Al2O3","FeOT","MnO","MgO","CaO","Na2O","K2O","P2O5"),
+    comp_level0="comp",
+    wvl_level0="wvl",
+):
+    if not isinstance(df.columns, pd.MultiIndex) or df.columns.nlevels != 2:
+        raise ValueError("Expected df.columns to be a 2-level MultiIndex (from header=[0,1]).")
+
+    target_key = infer_target_key(df.columns)
+    print("Using target column:", target_key)
+
+    # Target series
+    target = df[target_key].astype(str).str.strip()
+
+    # Oxides columns: (comp, oxide)
+    oxide_cols = [(comp_level0, o) for o in oxides if (comp_level0, o) in df.columns]
+    missing = [o for o in oxides if (comp_level0, o) not in df.columns]
+    if missing:
+        raise ValueError(f"Missing oxide columns under '{comp_level0}': {missing}")
+
+    # Wavelength columns: (wvl, "<number>")
+    wvl_cols = [c for c in df.columns if c[0] == wvl_level0]
+    if not wvl_cols:
+        raise ValueError(f"No wavelength columns found with level-0 '{wvl_level0}'.")
+
+    # Parse and sort wavelengths
+    def parse_wvl(c):
+        try:
+            return float(c[1])
+        except Exception:
+            return np.nan
+
+    wvl_with_vals = [(c, parse_wvl(c)) for c in wvl_cols]
+    wvl_with_vals = [(c, v) for c, v in wvl_with_vals if np.isfinite(v)]
+    if not wvl_with_vals:
+        raise ValueError("Found 'wvl' columns but could not parse numeric wavelengths from level-1.")
+
+    wvl_with_vals.sort(key=lambda t: t[1])
+    wvl_cols_sorted = [c for c, _ in wvl_with_vals]
+    wavelengths = np.array([v for _, v in wvl_with_vals], dtype=float)
+
+    # Working DF
+    work = pd.DataFrame({target_key: target})
+    work = pd.concat([work, df[oxide_cols], df[wvl_cols_sorted]], axis=1)
+
+    # Coerce numeric
+    for c in oxide_cols + wvl_cols_sorted:
+        work[c] = pd.to_numeric(work[c], errors="coerce")
+
+    # Drop missing target
+    work = work.dropna(subset=[target_key])
+
+    # Aggregate: average spectra per target
+    X_df = work.groupby(target_key, sort=True)[wvl_cols_sorted].first()
+
+    # Oxides aggregation
+
+    Y_df = work.groupby(target_key, sort=True)[oxide_cols].first()
+ 
+
+    # Align
+    X_df, Y_df = X_df.align(Y_df, join="inner", axis=0)
+
+    targets = [str(t) for t in X_df.index.to_list()]
+    X = X_df.to_numpy(dtype=float)
+    Y = Y_df.to_numpy(dtype=float)
+    oxide_names = [c[1] for c in Y_df.columns.to_list()]
+
+    return targets, wavelengths, X, Y, oxide_names
+
+def DownLoadSuperCam(saving_path):
+    CSV_URL = (
+        "https://pds-geosciences.wustl.edu/m2020/urn-nasa-pds-mars2020_supercam/"
+        "calibration_supercam/libs_spectral_library_reference.csv"
+    )
+
+    OUT_DIR = Path(saving_path + "/PDS_SuperCam/Data")
+    OUT_CSV = OUT_DIR / "libs_spectral_library_reference.csv"
+
+    if not OUT_CSV.exists():
+        download_file(CSV_URL, OUT_CSV)
+    else:
+        print("CSV already exists:", OUT_CSV)
+
+    df = load_twoheader_csv(OUT_CSV)
+    targets, wavelengths, X, Y, oxide_names = build_arrays_from_twoheader(
+        df,
+    )
+
+    wvl_index = pd.Index([float(w) for w in wavelengths], name="wavelength")
+    ox_index = pd.Index(list(oxide_names[:4] + oxide_names[5:9]), name="oxide") # exlude MnO and P205
+
+    spec_dict = {}
+    oxide_dict = {}
+
+    for i, t in enumerate(targets):
+        t = str(t)
+
+        # Spectrum series: wavelengths -> intensities
+        spec_dict[t] = pd.Series(X[i, :], index=wvl_index, name=t)
+
+        # Oxides series: oxide name -> proportion
+        oxide_dict[t] = pd.Series(np.hstack((Y[i, :4], Y[i, 5 : 9])), index=ox_index, name=t)
+
+
+    with open(OUT_DIR / 'SuperCam_Mars_predictors.pickle', 'wb') as file:
+        pickle.dump(spec_dict, file, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(OUT_DIR / 'SuperCam_Mars_labels.pickle', 'wb') as file:
+        pickle.dump(oxide_dict, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+def download_and_split_data(args: argparse.Namespace, saving_dir: str) -> None:
+    # Set up the environment
+    ResultDir = saving_dir + '/%s/SampleSplits/'%(args.DataType)
+    if not os.path.exists(ResultDir):
+        os.makedirs(ResultDir)
+
+    # Download SuperCam or ChemCam datasets if it does not exist 
+    if args.DataType == 'PDS_ChemCam':
+        Download = DownLoadChemCam(args, saving_dir)
+        Download.Parallel_AcquireData()
+    elif args.DataType == 'PDS_SuperCam':
+        DownLoadSuperCam(saving_dir)
+        
+    # set random seed 
+    for i in range(args.TrialNum):
+        np.random.seed(i)
+        random.seed(i)
+
+        # Construct variables and get training, validation and testing splits of the original data
+        TrSampleName, ValSampleName, TeSampleName = LoadLIBSDataforNetworkTraining_StandardSplit(args.DataType, saving_dir) 
+    
+        # Save sample splits
+        with open(ResultDir + 'Seed%d_TrSampleName.pickle'%(i+1), 'wb') as file:
+            pickle.dump(TrSampleName, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(ResultDir + 'Seed%d_TeSampleName.pickle'%(i+1), 'wb') as file:
+            pickle.dump(TeSampleName, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(ResultDir + 'Seed%d_ValSampleName.pickle'%(i+1), 'wb') as file:
+            pickle.dump(ValSampleName, file, protocol=pickle.HIGHEST_PROTOCOL) 
