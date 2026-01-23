@@ -54,7 +54,7 @@ regularizes the **output distribution** of a neural network by enforcing an appr
 divergence between predicted and target distributions.
 
 <p align="center">
-  <img src="figs/fig1_divergence.png" width="85%">
+  <img src="figs/fig1_divergence.png" width="95%">
 </p>
 
 **Figure 1. Motivation for f-divergence regularization (reproduced from the manuscript).**  
@@ -64,7 +64,7 @@ divergence. This observation motivates explicitly controlling distributional dis
 during neural network training.
 
 <p align="center">
-  <img src="figs/fig2_training_pipeline.png" width="80%">
+  <img src="figs/fig2_training_pipeline.png" width="95%">
 </p>
 
 **Figure 2. Training objective with f-divergence regularization (reproduced from the manuscript).**  
