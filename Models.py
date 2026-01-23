@@ -8,54 +8,55 @@ from sklearn.metrics import mean_squared_error
 from sklearn.metrics import pairwise_distances
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-class ChemCam_CNN(nn.Module):
-    def __init__(self, dropout_prob=0):
-        super(ChemCam_CNN, self).__init__()
+class CNN(nn.Module):
+    def __init__(self, num_classes: int, dropout_prob: float = 0.0, data_type: str = 'PDS_ChemCam'):
+        super().__init__()
+
+        layers = [
+            nn.Conv1d(1, 32, kernel_size=5),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+        ]
         if dropout_prob > 0:
-            self.cnn = nn.Sequential(
-                nn.Conv1d(1, 32, 5),
-                nn.BatchNorm1d(32),
-                nn.ReLU(),
-                nn.Dropout(p=dropout_prob),
-                nn.MaxPool1d(5),
+            layers.append(nn.Dropout(p=dropout_prob))
+        layers.append(nn.MaxPool1d(kernel_size=5))
 
-                nn.Conv1d(32, 16, 5),
-                nn.BatchNorm1d(16),
-                nn.ReLU(),
-                nn.Dropout(p=dropout_prob),
-                nn.MaxPool1d(5),
+        layers += [
+            nn.Conv1d(32, 16, kernel_size=5),
+            nn.BatchNorm1d(16),
+            nn.ReLU(inplace=True),
+        ]
+        if dropout_prob > 0:
+            layers.append(nn.Dropout(p=dropout_prob))
+        layers.append(nn.MaxPool1d(kernel_size=5))
 
-                nn.Conv1d(16, 8, 5),
-                nn.BatchNorm1d(8),
-                nn.ReLU(),
-                nn.Dropout(p=dropout_prob),
-                nn.MaxPool1d(5)
-            )
-        else:
-            self.cnn = nn.Sequential(
-                nn.Conv1d(1, 32, 5),
-                nn.BatchNorm1d(32),
-                nn.ReLU(),
-                nn.MaxPool1d(5),
+        layers += [
+            nn.Conv1d(16, 8, kernel_size=5),
+            nn.BatchNorm1d(8),
+            nn.ReLU(inplace=True),
+        ]
+        if dropout_prob > 0:
+            layers.append(nn.Dropout(p=dropout_prob))
+        layers.append(nn.MaxPool1d(kernel_size=5))
 
-                nn.Conv1d(32, 16, 5),
-                nn.BatchNorm1d(16),
-                nn.ReLU(),
-                nn.MaxPool1d(5),
+        self.cnn = nn.Sequential(*layers)
 
-                nn.Conv1d(16, 8, 5),
-                nn.BatchNorm1d(8),
-                nn.ReLU(),
-                nn.MaxPool1d(5)
-            )
-        self.fc =  nn.Linear(376, 10)
-
+        # depending on the data type, set the final output dimension
+        if data_type == 'PDS_ChemCam':
+            self.fc = nn.Linear(376, num_classes)
+        elif data_type == 'PDS_SuperCam':
+            self.fc = nn.Linear(496, num_classes)
     def forward(self, x):
-        out = self.cnn(x)
-        out = out.view(out.size(0), -1)
-        out2 = self.fc(out)
-        return out, out2
-    
+        """
+        x: (batch, 1, L) where L can be any length (as long as it survives pooling)
+        """
+        feat_map = self.cnn(x)          # (B, 8, L')
+        flattern_feat = feat_map.view(feat_map.size(0), -1)  # (B, 8, 1)
+        logits = self.fc(flattern_feat)          # (B, num_classes)
+        return feat_map, logits
+
+
+
 class TwoSampletrain():
     def __init__(self, args, predmodel, device, train_loader, val_loader, pred_optimizer):
         self.predmodel = predmodel
@@ -68,7 +69,7 @@ class TwoSampletrain():
         self.args = args
         self.Lambda = args.Lambda
         self.weight = args.weight
-        self.delta = args.delta
+        self.gamma = args.gamma
     
     def TwoSampleLoss(self, Pred, Targets): # Multi-variate differentiable f-divergence
         SumDic = {}
@@ -76,7 +77,11 @@ class TwoSampletrain():
         ZeroLabels = np.zeros((len(Pred), 1))
         OneLabels = np.ones((len(Targets), 1))
         Labels = np.vstack((ZeroLabels, OneLabels))
-        PairWiseDist = -torch.cdist(TwoSamples, TwoSamples)/self.Lambda
+        if self.device.type == "mps":
+        # compute on CPU and move result back
+            PairWiseDist=-torch.cdist(TwoSamples.to("cpu"), TwoSamples.to("cpu")).to(self.device)
+        else:
+            PairWiseDist = -torch.cdist(TwoSamples, TwoSamples)/self.Lambda
         ExpPairWiseDist = torch.exp(PairWiseDist)
         Threshold = torch.tensor(1e-6).to(self.device) # used to thresholding the denominator of the cut-edge ratio to prevent NaN results.
 
@@ -110,8 +115,8 @@ class TwoSampletrain():
             Pred_out,  Pred_out2 = self.predmodel(Feats)
             squeeze_Pred_out2 = Pred_out2.squeeze()
 
-            TSLoss = self.TwoSampleLoss(Pred_out2[:, :-1], targets[:, :-1])
-            MSEloss = criterion(squeeze_Pred_out2[:, :-1], targets[:, :-1])
+            TSLoss = self.TwoSampleLoss(Pred_out2, targets)
+            MSEloss = criterion(squeeze_Pred_out2, targets)
 
             self.test_TSLoss+=(self.weight * TSLoss.item() + MSEloss.item())
             Count+=1
@@ -129,11 +134,11 @@ class TwoSampletrain():
             """
             Pred_out,  Pred_out2 = self.predmodel(Feats)
 
-            TSloss = self.TwoSampleLoss(Pred_out2[:, :-1], targets[:, :-1])
+            TSloss = self.TwoSampleLoss(Pred_out2, targets)
 
-            MSEloss = criterion(Pred_out2[:, :-1], targets[:, :-1])
+            MSEloss = criterion(Pred_out2, targets)
 
-            TotalLoss = MSEloss + self.weight*(TSloss - self.delta)**2
+            TotalLoss = MSEloss + self.weight*(TSloss - self.gamma)**2
             if self.args.LossType2 == 'L1_fdiv':
                 l1_parameters = []
                 for parameter in self.predmodel.parameters():
@@ -195,12 +200,12 @@ def train(args, model, device, train_loader, optimizer):
         optimizer.zero_grad()
         outputs1,  outputs2 = model(Feats)
         # outputs2 = outputs2.squeeze()
-        loss = criterion(outputs2[:, :-1], targets[:, :-1])
+        loss = criterion(outputs2, targets)
         if args.LossType == 'L1':
             l1_parameters = []
             for parameter in model.parameters():
                 l1_parameters.append(parameter.view(-1))
-            l1 = args.delta * torch.abs(torch.cat(l1_parameters)).sum()
+            l1 = args.l1delta * torch.abs(torch.cat(l1_parameters)).sum()
             loss+=l1           
        
         loss.backward()
@@ -210,17 +215,17 @@ def train(args, model, device, train_loader, optimizer):
 def test(args, model, device, test_loader, scaler):
     model.eval()
 
-    Pred = np.zeros((0, test_loader.dataset.Labels.shape[-1]-1))
-    TrueLabels = np.zeros((0, test_loader.dataset.Labels.shape[-1]-1));
+    Pred = np.zeros((0, test_loader.dataset.Labels.shape[-1]))
+    TrueLabels = np.zeros((0, test_loader.dataset.Labels.shape[-1]));
       
     with torch.no_grad():
         for (Feats, targets) in test_loader:
             Feats, targets = Feats.to(device), targets.to(device)
             Output1, Output2 = model(Feats)
-            Output2 = Output2.squeeze()
-
-            Pred = np.vstack((Pred, Output2[:, :-1].cpu().detach().numpy()))
-            TrueLabels = np.vstack((TrueLabels, targets[:, :-1].cpu().detach().numpy()))
+            # Output2 = Output2.squeeze()
+            Output2 = Output2.reshape((-1, Output2.shape[-1]))
+            Pred = np.vstack((Pred, Output2.cpu().detach().numpy()))
+            TrueLabels = np.vstack((TrueLabels, targets.cpu().detach().numpy()))
 
     Pred = Pred * scaler.scale_ + scaler.mean_
         
@@ -228,40 +233,14 @@ def test(args, model, device, test_loader, scaler):
 
     Err2 = FDivergence(Pred, TrueLabels)
     return Pred, Err1, Err2
-
-def test2(args, model, device, test_loader, scaler, SampleWise):
-    model.eval()
-
-    if args.DataType == 'ChemCam' or args.DataType == 'ChemCam2':
-        Pred = np.zeros((0, 9))
-    elif args.DataType == 'Dyar_SuperCam_Mars' or args.DataType == 'Dyar_SuperCam_Earth' or args.DataType == 'Dyar_SuperCam_Vacuum':
-        Pred = np.zeros((0, 10))
-      
-    with torch.no_grad():
-        for (Feats, targets) in test_loader:
-            Feats, targets = Feats.to(device), targets.to(device)
-            Output1, Output2 = model(Feats)
-            Output2 = Output2.squeeze()
-
-            Pred = np.vstack((Pred, Output2[:, :-1].cpu().detach().numpy()))
-
-    if scaler != None:
-        Pred = Pred * scaler.scale_ + scaler.mean_
-        
-    return Pred
     
 # Create a dataset class for the One-data training
 class MyAIDataset(Dataset):
     def __init__(self, Feats, Labels):
         self.FeatLen = Feats.shape[-1]
         self.Feats = np.float32(Feats).reshape((-1, 1, self.FeatLen))
-   
-        self.Labels = np.zeros((len(Labels), Labels.shape[1] + 1))
-        self.Labels[:, :-1] = Labels 
-        self.Labels[:, -1] = 1 - np.sum(self.Labels, axis = 1)
-                               
-        self.Labels = np.float32(self.Labels) 
-    
+        self.Labels = np.float32(Labels) 
+
     def __len__(self):
         return len(self.Feats)
 
